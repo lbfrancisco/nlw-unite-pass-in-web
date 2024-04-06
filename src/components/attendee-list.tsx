@@ -1,4 +1,4 @@
-import { ChangeEvent, useState } from 'react'
+import { ChangeEvent, useEffect, useState } from 'react'
 import {
   ChevronLeft,
   ChevronRight,
@@ -7,41 +7,103 @@ import {
   MoreHorizontal,
   Search,
 } from 'lucide-react'
-import { IconButton } from './icon-button'
-import * as Table from './table'
-import { attendees } from '../data/attendees'
 import { formatDistanceToNow } from 'date-fns'
 import { ptBR } from 'date-fns/locale/pt-BR'
+import { api } from '../service/api'
+
+import { IconButton } from './icon-button'
+import * as Table from './table'
+
+interface Attendee {
+  id: string
+  name: string
+  email: string
+  createdAt: string
+  checkedInAt: string | null
+}
 
 export function AttendeeList() {
-  const [search, setSearch] = useState('')
-  const [page, setPage] = useState(1)
+  const [search, setSearch] = useState(() => {
+    const url = new URL(window.location.toString())
 
-  const totalPages = Math.ceil(attendees.length / 10)
+    if (url.searchParams.has('search')) {
+      return url.searchParams.get('search') ?? ''
+    }
+
+    return ''
+  })
+  const [page, setPage] = useState(() => {
+    const url = new URL(window.location.toString())
+
+    if (url.searchParams.has('page')) {
+      return Number(url.searchParams.get('page'))
+    }
+
+    return 1
+  })
+
+  const [total, setTotal] = useState(0)
+  const [attendees, setAttendees] = useState<Attendee[]>([])
+
+  useEffect(() => {
+    async function getAttendees() {
+      try {
+        const response = await api.get(
+          `/events/c61449b7-ef18-4f31-9cc6-892a8e3e592a/attendees?pageIndex=${page - 1}&query=${search}`,
+        )
+
+        setAttendees(response.data.attendees)
+        setTotal(response.data.total)
+      } catch (error) {}
+    }
+
+    getAttendees()
+  }, [page, search])
+
+  const totalPages = Math.ceil(total / 10)
 
   function onSearchInputValueChanged(event: ChangeEvent<HTMLInputElement>) {
-    setSearch(event.target.value)
+    setCurrentSearch(event.target.value)
+    setCurrentPage(1)
   }
 
   function goToFirstPage() {
-    setPage(1)
+    setCurrentPage(1)
   }
 
   function goToPreviousPage() {
     if (page <= 1) return
 
-    setPage(page - 1)
+    setCurrentPage(page - 1)
   }
 
   function goToNextPage() {
     if (page >= totalPages) return
 
-    setPage(page + 1)
+    setCurrentPage(page + 1)
   }
 
   function goToLastPage() {
     const lastPage = totalPages
-    setPage(lastPage)
+    setCurrentPage(lastPage)
+  }
+
+  function setCurrentPage(page: number) {
+    const url = new URL(window.location.toString())
+    url.searchParams.set('page', String(page))
+
+    setPage(page)
+
+    window.history.pushState({}, '', url)
+  }
+
+  function setCurrentSearch(search: string) {
+    const url = new URL(window.location.toString())
+    url.searchParams.set('search', search)
+
+    setSearch(search)
+
+    window.history.pushState({}, '', url)
   }
 
   return (
@@ -78,7 +140,7 @@ export function AttendeeList() {
           </Table.Row>
         </Table.Head>
         <Table.Body>
-          {attendees.slice((page - 1) * 10, page * 10).map((attendee, i) => {
+          {attendees.map((attendee, i) => {
             return (
               <Table.Row key={i}>
                 <Table.Cell>
@@ -103,10 +165,16 @@ export function AttendeeList() {
                   })}
                 </Table.Cell>
                 <Table.Cell>
-                  {formatDistanceToNow(attendee.checkedInAt, {
-                    locale: ptBR,
-                    addSuffix: true,
-                  })}
+                  {!attendee.checkedInAt ? (
+                    <span className="text-zinc-400">
+                      Check-in não realizado
+                    </span>
+                  ) : (
+                    formatDistanceToNow(attendee.checkedInAt, {
+                      locale: ptBR,
+                      addSuffix: true,
+                    })
+                  )}
                 </Table.Cell>
                 <Table.Cell>
                   <IconButton transparent>
@@ -118,39 +186,41 @@ export function AttendeeList() {
           })}
         </Table.Body>
         <Table.Foot>
-          <Table.Cell colSpan={3}>
-            Mostrando 10 de {attendees.length} itens
-          </Table.Cell>
-          <Table.Cell
-            className="py-3 px-4 text-sm text-zinc-300 text-right"
-            colSpan={3}
-          >
-            <div className="flex items-center justify-end gap-8">
-              <span>
-                Página {page} de {totalPages}
-              </span>
-              <div className="flex gap-1.5">
-                <IconButton onClick={goToFirstPage} disabled={page === 1}>
-                  <ChevronsLeft className="size-4" />
-                </IconButton>
-                <IconButton onClick={goToPreviousPage} disabled={page === 1}>
-                  <ChevronLeft className="size-4" />
-                </IconButton>
-                <IconButton
-                  onClick={goToNextPage}
-                  disabled={page === totalPages}
-                >
-                  <ChevronRight className="size-4" />
-                </IconButton>
-                <IconButton
-                  onClick={goToLastPage}
-                  disabled={page === totalPages}
-                >
-                  <ChevronsRight className="size-4" />
-                </IconButton>
+          <Table.Row>
+            <Table.Cell colSpan={3}>
+              Mostrando {attendees.length} de {total} itens
+            </Table.Cell>
+            <Table.Cell
+              className="py-3 px-4 text-sm text-zinc-300 text-right"
+              colSpan={3}
+            >
+              <div className="flex items-center justify-end gap-8">
+                <span>
+                  Página {page} de {totalPages}
+                </span>
+                <div className="flex gap-1.5">
+                  <IconButton onClick={goToFirstPage} disabled={page === 1}>
+                    <ChevronsLeft className="size-4" />
+                  </IconButton>
+                  <IconButton onClick={goToPreviousPage} disabled={page === 1}>
+                    <ChevronLeft className="size-4" />
+                  </IconButton>
+                  <IconButton
+                    onClick={goToNextPage}
+                    disabled={page === totalPages}
+                  >
+                    <ChevronRight className="size-4" />
+                  </IconButton>
+                  <IconButton
+                    onClick={goToLastPage}
+                    disabled={page === totalPages}
+                  >
+                    <ChevronsRight className="size-4" />
+                  </IconButton>
+                </div>
               </div>
-            </div>
-          </Table.Cell>
+            </Table.Cell>
+          </Table.Row>
         </Table.Foot>
       </Table.Root>
     </div>
